@@ -1,0 +1,17 @@
+7fe67f0d7b827034fde627cd3cfcc83e *DESCRIPTION
+461d3ffdf743ae3c74bc8b7072869302 *NAMESPACE
+104b43a7414eeb73afc5f408f76d9163 *NEWS.md
+19cba54110f05091b80e1402a6f49c44 *R/utils.R
+7a44a15381916a896daec3fff61d9731 *R/zip.R
+3ddbb919da3acad6392398e43ac708e1 *README.md
+fa82f3e02de8d04717f7891d06c5ce53 *man/zip.Rd
+50883b763de65f6c7cc01d834acebda5 *man/zip_list.Rd
+12bb458ac91dcbf5494a0f91658a182d *src/init.c
+611f7eab3cb69476188f85d3a171536d *src/miniz.h
+1f6411c76e54d63643f0c948ae4f431b *src/rzip.c
+6977e3b6e9bc4d6d22ebc67fa2b3a6e0 *src/zip.c
+164dba65a568566a702a7047058a39d7 *src/zip.h
+ef3d69ea2140111e66f6fcbd297d3437 *tests/testthat.R
+59c64fd2a30991ae208b45d6cbd08a3b *tests/testthat/test-errors.R
+8593f7b82f51946208e45b5da517081f *tests/testthat/test-zip-list.R
+b4f156894821c848729ba731fea60b8a *tests/testthat/test-zip.R

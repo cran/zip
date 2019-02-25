@@ -1,0 +1,18 @@
+
+OBJECTS = init.o miniz.o rzip.o zip.o
+
+.PHONY: all clean
+
+all: tools/cmdzip.exe tools/cmdunzip.exe $(SHLIB)
+
+tools/cmdzip.exe: miniz.c zip.c tools/cmdzip.c
+	$(CC) $(CFLAGS) miniz.c zip.c tools/cmdzip.c -o tools/cmdzip.exe
+
+tools/cmdunzip.exe: miniz.c zip.c tools/cmdunzip.c
+	$(CC) $(CFLAGS) miniz.c zip.c tools/cmdunzip.c -o tools/cmdunzip.exe
+
+clean:
+	rm -rf $(SHLIB) $(OBJECTS) \
+	tools/cmdunzip tools/cmdunzip.exe tools/cmdunzip.dSYM \
+	tools/cmdzip tools/cmdzip.exe tools/cmdzip.dSYM
+	

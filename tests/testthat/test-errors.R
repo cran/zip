@@ -4,15 +4,14 @@ context("errors")
 test_that("non-existant file", {
 
   on.exit(try(unlink(c(zipfile, tmp), recursive = TRUE)))
-  
-  tmp <- tempfile()  
+  tmp <- tempfile()
 
   zipfile <- tempfile(fileext = ".zip")
 
   expect_error(
     withr::with_dir(
       dirname(tmp),
-      zip(zipfile, basename(tmp))
+      zipr(zipfile, basename(tmp))
     ),
     "Some files do not exist"
   )
@@ -28,7 +27,7 @@ test_that("appending non-existant file", {
   expect_silent(
     withr::with_dir(
       dirname(tmp),
-      zip(zipfile, basename(tmp))
+      zipr(zipfile, basename(tmp))
     )
   )
 
@@ -37,7 +36,7 @@ test_that("appending non-existant file", {
   expect_silent(
     withr::with_dir(
       dirname(tmp2),
-      zip_append(zipfile, basename(tmp2))
+      zipr_append(zipfile, basename(tmp2))
     )
   )
 
@@ -50,6 +49,7 @@ test_that("appending non-existant file", {
 test_that("non readable file", {
 
   skip_on_os("windows")
+  skip_on_os("linux")
 
   on.exit(try(unlink(c(zipfile, tmp), recursive = TRUE)))
   cat("compress this if you can!", file = tmp <- tempfile())
@@ -60,9 +60,9 @@ test_that("non readable file", {
   expect_error(
     withr::with_dir(
       dirname(tmp),
-      zip(zipfile, basename(tmp))
+      zipr(zipfile, basename(tmp))
     ),
-    "Can't write zip file entry"
+    "Cannot add file"
   )
 })
 
@@ -70,7 +70,7 @@ test_that("empty archive, no files", {
   on.exit(try(unlink(zipfile)))
   zipfile <- tempfile(fileext = ".zip")
 
-  expect_silent(zip(zipfile, character()))
+  expect_silent(zipr(zipfile, character()))
 
   expect_true(file.exists(zipfile))
 
@@ -88,15 +88,21 @@ test_that("single empty directory", {
   expect_silent(
     withr::with_dir(
       dirname(tmp),
-      zip(zipfile, basename(tmp))
+      zipr(zipfile, basename(tmp))
     )
   )
 
   expect_true(file.exists(zipfile))
 
   list <- zip_list(zipfile)
-  expect_equal(nrow(list), 0)
-  expect_equal(list$filename, character())
+  expect_equal(nrow(list), 1)
+  expect_equal(list$filename, bns(tmp))
+
+  dir.create(tmp2 <- tempfile())
+  on.exit(try(unlink(tmp2, recursive = TRUE)))
+  utils::unzip(zipfile, exdir = tmp2)
+  expect_equal(dir(tmp2), basename(tmp))
+  expect_true(file.info(file.path(tmp2, dir(tmp2)))$isdir)
 })
 
 test_that("single empty directory, non-recursive", {
@@ -108,7 +114,7 @@ test_that("single empty directory, non-recursive", {
   expect_warning(
     withr::with_dir(
       dirname(tmp),
-      zip(zipfile, basename(tmp), recurse = FALSE)
+      zipr(zipfile, basename(tmp), recurse = FALSE)
     ),
     "directories ignored"
   )
@@ -133,7 +139,7 @@ test_that("appending single empty directory", {
   expect_silent(
     withr::with_dir(
       dirname(tmp),
-      zip(zipfile, basename(tmp))
+      zipr(zipfile, basename(tmp))
     )
   )
 
@@ -142,15 +148,15 @@ test_that("appending single empty directory", {
   list <- zip_list(zipfile)
   expect_equal(
     basename(list$filename),
-    c("file1", "file2")
+    c(basename(tmp), "file1", "file2")
   )
-  
+
   dir.create(tmp2 <- tempfile())
 
   expect_silent(
     withr::with_dir(
       dirname(tmp),
-      zip_append(zipfile, basename(tmp2))
+      zipr_append(zipfile, basename(tmp2))
     )
   )
 
@@ -159,7 +165,7 @@ test_that("appending single empty directory", {
   list <- zip_list(zipfile)
   expect_equal(
     basename(list$filename),
-    c("file1", "file2")
+    c(basename(tmp), "file1", "file2", basename(tmp2))
   )
 })
 
@@ -176,7 +182,7 @@ test_that("appending single empty directory, non-recursive", {
   expect_silent(
     withr::with_dir(
       dirname(tmp),
-      zip(zipfile, basename(tmp))
+      zipr(zipfile, basename(tmp))
     )
   )
 
@@ -185,17 +191,17 @@ test_that("appending single empty directory, non-recursive", {
   list <- zip_list(zipfile)
   expect_equal(
     basename(list$filename),
-    c("file1", "file2")
+    c(basename(tmp), "file1", "file2")
   )
-  
+
   dir.create(tmp2 <- tempfile())
 
   expect_warning(
     withr::with_dir(
       dirname(tmp),
-      zip_append(zipfile, basename(tmp2), recurse = FALSE)
+      zipr_append(zipfile, basename(tmp2), recurse = FALSE)
     ),
-    "directories ignored"    
+    "directories ignored"
   )
 
   expect_true(file.exists(zipfile))
@@ -203,6 +209,6 @@ test_that("appending single empty directory, non-recursive", {
   list <- zip_list(zipfile)
   expect_equal(
     basename(list$filename),
-    c("file1", "file2")
+    c(basename(tmp), "file1", "file2")
   )
 })

@@ -1,681 +1,415 @@
-/*
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
- * IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
 
-#include "zip.h"
-#include "miniz.h"
-
+#include <stdlib.h>
+#include <time.h>
 #include <errno.h>
 #include <sys/stat.h>
-#include <time.h>
+#include <sys/time.h>
+#include <stdarg.h>
 
-#if defined _WIN32 || defined __WIN32__
-/* Win32, DOS */
-#include <direct.h>
+#ifdef _WIN32
+#include <direct.h>		/* _mkdir */
+#include <windows.h>
+#endif
 
-#define MKDIR(DIRNAME) _mkdir(DIRNAME)
-#define STRCLONE(STR) ((STR) ? _strdup(STR) : NULL)
-#define HAS_DEVICE(P)                                                          \
-    ((((P)[0] >= 'A' && (P)[0] <= 'Z') || ((P)[0] >= 'a' && (P)[0] <= 'z')) && \
-     (P)[1] == ':')
-#define FILESYSTEM_PREFIX_LEN(P) (HAS_DEVICE(P) ? 2 : 0)
-#define ISSLASH(C) ((C) == '/' || (C) == '\\')
+#include "miniz.h"
+#include "zip.h"
+
+#define ZIP_ERROR_BUFFER_SIZE 1000
+static char zip_error_buffer[ZIP_ERROR_BUFFER_SIZE];
+
+static const char *zip_error_strings[] = {
+  /* 0 R_ZIP_ESUCCESS     */ "Success",
+  /* 1 R_ZIP_EOPEN        */ "Cannot open zip file `%s` for reading",
+  /* 2 R_ZIP_ENOMEM       */ "Cannot extract zip file `%s`, out of memory",
+  /* 3 R_ZIP_ENOENTRY     */ "Cannot find file `%s` in zip archive `%s`",
+  /* 4 R_ZIP_EBROKEN      */ "Cannot extract zip archive `%s`",
+  /* 5 R_ZIP_EBROKENENTRY */ "Cannot extract entry `%s` from archive `%s`",
+  /* 6 R_ZIP_EOVERWRITE   */ "Not overwriting `%s` when extracting `%s`",
+  /* 7 R_ZIP_ECREATEDIR   */
+     "Cannot create directory `%s` to extract `%s` from arghive `%s`",
+  /* 8 R_ZIP_ESETPERM     */
+     "Cannot set permissions for `%s` from archive `%s`",
+  /* 9 R_ZIP_ESETMTIME    */
+      "Failed to set mtime on `%s` while extracting `%s`",
+  /*10 R_ZIP_EOPENWRITE   */ "Cannot open zip file `%s` for writing",
+  /*11 R_ZIP_EOPENWRITE   */ "Cannot open zip file `%s` for appending",
+  /*12 R_ZIP_EADDDIR      */ "Cannot add directory `%s` to archive `%s`",
+  /*13 R_ZIP_EADDFILE     */ "Cannot add file `%s` to archive `%s`",
+  /*14 R_ZIP_ESETZIPPERM  */
+      "Cannot set permission on file `%s` in archive `%s`",
+  /*15 R_ZIP_ECREATE      */ "Could not create zip archive `%s`"
+};
+
+static zip_error_handler_t *zip_error_handler = 0;
+
+void zip_set_error_handler(zip_error_handler_t *handler) {
+  zip_error_handler = handler;
+}
+
+void zip_error(int errorcode, const char *file, int line, ...) {
+  va_list va;
+  int err = errno;
+  va_start(va, line);
+  vsnprintf(zip_error_buffer, ZIP_ERROR_BUFFER_SIZE - 1,
+	    zip_error_strings[errorcode], va);
+  zip_error_handler(zip_error_buffer, file, line, errorcode, err);
+}
+
+#define ZIP_ERROR(c, ...) do {				\
+  zip_error((c), __FILE__, __LINE__, __VA_ARGS__);	\
+  return 1; }  while(0)
+
+int zip_set_permissions(mz_zip_archive *zip_archive, mz_uint file_index,
+			const char *filename) {
+
+  /* We only do this on Unix currently*/
+#ifdef _WIN32
+  return 0;
+#else
+  mz_uint16 version_by;
+  mz_uint32 external_attr;
+  struct stat st;
+
+  if (! mz_zip_get_version_made_by(zip_archive, file_index, &version_by) ||
+      ! mz_zip_get_external_attr(zip_archive, file_index, &external_attr)) {
+    return 1;
+  }
+
+  if (stat(filename, &st)) return 1;
+
+  version_by &= 0x00FF;
+  version_by |= 3 << 8;
+
+  /* We need to set the created-by version here, apparently, otherwise
+     miniz will not set it properly.... */
+  version_by |= 23;
+
+  external_attr &= 0x0000FFFF;
+  external_attr |= st.st_mode << 16;
+
+  if (! mz_zip_set_version_made_by(zip_archive, file_index, version_by) ||
+      ! mz_zip_set_external_attr(zip_archive, file_index, external_attr)) {
+    return 1;
+  }
+
+  return 0;
+#endif
+}
+
+#ifdef _WIN32
+int zip_get_permissions(mz_zip_archive_file_stat *stat, mode_t *mode) {
+  *mode = stat->m_is_directory ? 0700 : 0600;
+  return 0;
+}
+#else
+int zip_get_permissions(mz_zip_archive_file_stat *stat, mode_t *mode) {
+  mz_uint16 version_by = (stat->m_version_made_by >> 8) & 0xFF;
+  mz_uint32 external_attr = (stat->m_external_attr >> 16) & 0xFFFF;
+
+  /* If it is not made by Unix, or the permission field is zero,
+     we ignore them. */
+  if (version_by != 3 || external_attr == 0) {
+    *mode = stat->m_is_directory ? 0700 : 0600;
+  } else {
+    *mode = (mode_t) external_attr & 0777;
+  }
+
+  return 0;
+}
+#endif
+
+int zip_str_file_path(const char *cexdir, const char *key,
+		      char **buffer, size_t *buffer_size, int cjunkpaths) {
+
+  size_t len1 = strlen(cexdir);
+  size_t need_size, len2;
+  char *newbuffer;
+
+  if (cjunkpaths) {
+    char *base = strrchr(key, '/');
+    if (base) key = base;
+  }
+
+  len2 = strlen(key);
+  need_size = len1 + len2 + 2;
+
+  if (*buffer_size < need_size) {
+    newbuffer = realloc((void*) *buffer, need_size);
+    if (!newbuffer) return 1;
+
+    *buffer = newbuffer;
+    *buffer_size = need_size;
+  }
+
+  strcpy(*buffer, cexdir);
+  (*buffer)[len1] = '/';
+  strcpy(*buffer + len1 + 1, key);
+
+  return 0;
+}
+
+int zip_mkdirp(char *path, int complete)  {
+  char *p;
+  int status;
+
+  errno = 0;
+
+  /* Iterate the string */
+  for (p = path + 1; *p; p++) {
+    if (*p == '/') {
+      *p = '\0';
+#ifdef _WIN32
+      status = _mkdir(path);
+#else
+      status = mkdir(path, S_IRWXU);
+#endif
+      *p = '/';
+      if (status && errno != EEXIST) {
+	  return 1;
+      }
+    }
+  }
+
+  if (complete) {
+#ifdef _WIN32
+    status = _mkdir(path);
+#else
+    status = mkdir(path, S_IRWXU);
+#endif
+    if ((status && errno != EEXIST)) return 1;
+  }
+
+  return 0;
+}
+
+int zip_file_exists(char *filename) {
+  struct stat st;
+  return ! stat(filename, &st);
+}
+
+int zip_set_mtime(const char *filename, time_t mtime) {
+#ifdef _WIN32
+  SYSTEMTIME st;
+  FILETIME modft;
+  struct tm *utctm;
+  HANDLE hFile;
+  time_t ftimei = (time_t) mtime;
+
+  utctm = gmtime(&ftimei);
+  if (!utctm) return 1;
+
+  st.wYear         = (WORD) utctm->tm_year + 1900;
+  st.wMonth        = (WORD) utctm->tm_mon + 1;
+  st.wDayOfWeek    = (WORD) utctm->tm_wday;
+  st.wDay          = (WORD) utctm->tm_mday;
+  st.wHour         = (WORD) utctm->tm_hour;
+  st.wMinute       = (WORD) utctm->tm_min;
+  st.wSecond       = (WORD) utctm->tm_sec;
+  st.wMilliseconds = (WORD) 1000*(mtime - ftimei);
+  if (!SystemTimeToFileTime(&st, &modft)) return 1;
+
+  hFile = CreateFile(filename, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+		     FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  if (hFile == INVALID_HANDLE_VALUE) return 1;
+  int res  = SetFileTime(hFile, NULL, NULL, &modft);
+  CloseHandle(hFile);
+  return res == 0; /* success is non-zero */
 
 #else
-#define MKDIR(DIRNAME) mkdir(DIRNAME, 0755)
-#define STRCLONE(STR) ((STR) ? strdup(STR) : NULL)
+  struct timeval times[2];
+  times[0].tv_sec  = times[1].tv_sec = mtime;
+  times[0].tv_usec = times[1].tv_usec = 0;
+  return utimes(filename, times);
 #endif
+}
 
-#ifndef FILESYSTEM_PREFIX_LEN
-#define FILESYSTEM_PREFIX_LEN(P) 0
+int zip_unzip(const char *czipfile, const char **cfiles, int num_files,
+	      int coverwrite, int cjunkpaths, const char *cexdir) {
+
+  int allfiles = cfiles == NULL;
+  int i, n;
+  mz_zip_archive zip_archive;
+  char *buffer = 0;
+  size_t buffer_size = 0;
+
+  memset(&zip_archive, 0, sizeof(zip_archive));
+
+  if (!mz_zip_reader_init_file(&zip_archive, czipfile, 0)) {
+    ZIP_ERROR(R_ZIP_EOPEN, czipfile);
+  }
+
+  /* We allocate a fairly large buffer for the destination file names here,
+     so that we don't need to reallocated it all the time */
+  buffer_size = 1000;
+  buffer = malloc(buffer_size);
+  if (!buffer) {
+    mz_zip_reader_end(&zip_archive);
+    ZIP_ERROR(R_ZIP_ENOMEM, czipfile);
+  }
+
+  n = allfiles ? mz_zip_reader_get_num_files(&zip_archive) : num_files;
+
+  for (i = 0; i < n; i++) {
+    mz_uint32 idx = -1;
+    const char *key = 0;
+    mz_zip_archive_file_stat file_stat;
+
+    if (allfiles) {
+      idx = (mz_uint32) i;
+    } else {
+      key = cfiles[i];
+      if (!mz_zip_reader_locate_file_v2(&zip_archive, key, /* pComment= */ 0,
+				       /* flags= */ 0, &idx)) {
+	mz_zip_reader_end(&zip_archive);
+	if (buffer) free(buffer);
+	ZIP_ERROR(R_ZIP_ENOENTRY, key, czipfile);
+      }
+    }
+
+    if (! mz_zip_reader_file_stat(&zip_archive, idx, &file_stat)) {
+      mz_zip_reader_end(&zip_archive);
+      if (buffer) free(buffer);
+      ZIP_ERROR(R_ZIP_EBROKEN, czipfile);
+    }
+    key = file_stat.m_filename;
+
+    if (zip_str_file_path(cexdir, key, &buffer, &buffer_size, cjunkpaths)) {
+      mz_zip_reader_end(&zip_archive);
+      if (buffer) free(buffer);
+      ZIP_ERROR(R_ZIP_ENOMEM, czipfile);
+    }
+
+    if (file_stat.m_is_directory) {
+      if (! cjunkpaths && zip_mkdirp(buffer, 1)) {
+	mz_zip_reader_end(&zip_archive);
+	if (buffer) free(buffer);
+	ZIP_ERROR(R_ZIP_EBROKENENTRY, key, czipfile);
+      }
+
+    } else {
+      if (!coverwrite && zip_file_exists(buffer)) {
+	mz_zip_reader_end(&zip_archive);
+	if (buffer) free(buffer);
+	ZIP_ERROR(R_ZIP_EOVERWRITE, key, czipfile);
+      }
+
+      if (! cjunkpaths && zip_mkdirp(buffer, 0)) {
+	mz_zip_reader_end(&zip_archive);
+	if (buffer) free(buffer);
+	ZIP_ERROR(R_ZIP_ECREATEDIR, key, czipfile);
+      }
+
+      if (!mz_zip_reader_extract_to_file(&zip_archive, idx, buffer, 0)) {
+	mz_zip_reader_end(&zip_archive);
+	if (buffer) free(buffer);
+	ZIP_ERROR(R_ZIP_EBROKENENTRY, key, czipfile);
+      }
+    }
+#ifndef _WIN32
+    mode_t mode;
+    zip_get_permissions(&file_stat, &mode);
+    if (chmod(buffer, mode)) {
+      mz_zip_reader_end(&zip_archive);
+      if (buffer) free(buffer);
+      ZIP_ERROR(R_ZIP_ESETPERM, key, czipfile);
+    }
 #endif
+  }
 
-#ifndef ISSLASH
-#define ISSLASH(C) ((C) == '/')
-#endif
+  /* Round two, to set the mtime on directories. We skip handling most
+     of the errors here, because the central directory is unchanged, and
+     if we got here, then it must be still good. */
 
-#define CLEANUP(ptr)           \
-    do {                       \
-        if (ptr) {             \
-            free((void *)ptr); \
-            ptr = NULL;        \
-        }                      \
-    } while (0)
+  for (i = 0; ! cjunkpaths &&  i < n; i++) {
+    mz_uint32 idx = -1;
+    const char *key = 0;
+    mz_zip_archive_file_stat file_stat;
 
-static char *basename(const char *name) {
-    char const *p;
-    char const *base = name += FILESYSTEM_PREFIX_LEN(name);
-    int all_slashes = 1;
-
-    for (p = name; *p; p++) {
-        if (ISSLASH(*p))
-            base = p + 1;
-        else
-            all_slashes = 0;
+    if (allfiles) {
+      idx = (mz_uint32) i;
+    } else {
+      key = cfiles[i];
+      mz_zip_reader_locate_file_v2(&zip_archive, key, /* pComment= */ 0,
+				   /* flags= */ 0, &idx);
     }
 
-    /* If NAME is all slashes, arrange to return `/'. */
-    if (*base == '\0' && ISSLASH(*name) && all_slashes) --base;
+    mz_zip_reader_file_stat(&zip_archive, idx, &file_stat);
+    key = file_stat.m_filename;
 
-    return (char *)base;
+    if (file_stat.m_is_directory) {
+      zip_str_file_path(cexdir, key, &buffer, &buffer_size, cjunkpaths);
+      if (zip_set_mtime(buffer, file_stat.m_time)) {
+	if (buffer) free(buffer);
+	mz_zip_reader_end(&zip_archive);
+	ZIP_ERROR(R_ZIP_ESETMTIME, key, czipfile);
+      }
+    }
+  }
+
+  if (buffer) free(buffer);
+  mz_zip_reader_end(&zip_archive);
+
+  /* TODO: return info */
+  return 0;
 }
 
-static int mkpath(const char *path) {
-    char const *p;
-    char npath[MAX_PATH + 1] = {0};
-    int len = 0;
+int zip_zip(const char *czipfile, int num_files, const char **ckeys,
+	    const char **cfiles, int *cdirs, double *cmtimes,
+	    int compression_level, int cappend) {
 
-    for (p = path; *p && len < MAX_PATH; p++) {
-        if (ISSLASH(*p) && len > 0) {
-            if (MKDIR(npath) == -1)
-                if (errno != EEXIST) return -1;
-        }
-        npath[len++] = *p;
+  mz_uint ccompression_level = (mz_uint) compression_level;
+  int i, n = num_files;
+  mz_zip_archive zip_archive;
+
+  memset(&zip_archive, 0, sizeof(zip_archive));
+
+  if (cappend) {
+    if (!mz_zip_reader_init_file(&zip_archive, czipfile, 0) ||
+	!mz_zip_writer_init_from_reader(&zip_archive, czipfile)) {
+      ZIP_ERROR(R_ZIP_EOPENAPPEND, czipfile);
+    }
+  } else {
+    if (!mz_zip_writer_init_file(&zip_archive, czipfile, 0)) {
+      ZIP_ERROR(R_ZIP_EOPENWRITE, czipfile);
+    }
+  }
+
+  for (i = 0; i < n; i++) {
+    const char *key = ckeys[i];
+    const char *filename = cfiles[i];
+    int directory = cdirs[i];
+    if (directory) {
+      MZ_TIME_T cmtime = (MZ_TIME_T) cmtimes[i];
+      if (!mz_zip_writer_add_mem_ex_v2(&zip_archive, key, 0, 0, 0, 0,
+				       ccompression_level, 0, 0, &cmtime, 0, 0,
+				       0, 0)) {
+	mz_zip_writer_end(&zip_archive);
+	ZIP_ERROR(R_ZIP_EADDDIR, key, czipfile);
+      }
+
+    } else {
+      if (!mz_zip_writer_add_file(&zip_archive, key, filename, 0, 0,
+				  ccompression_level)) {
+	mz_zip_writer_end(&zip_archive);
+	ZIP_ERROR(R_ZIP_EADDFILE, key, czipfile);
+      }
     }
 
-    return 0;
-}
-
-struct zip_entry_t {
-    int index;
-    const char *name;
-    mz_uint64 uncomp_size;
-    mz_uint64 comp_size;
-    mz_uint32 uncomp_crc32;
-    mz_uint64 offset;
-    mz_uint8 header[MZ_ZIP_LOCAL_DIR_HEADER_SIZE];
-    mz_uint64 header_offset;
-    mz_uint16 method;
-    mz_zip_writer_add_state state;
-    tdefl_compressor comp;
-};
-
-struct zip_t {
-    mz_zip_archive archive;
-    mz_uint level;
-    struct zip_entry_t entry;
-    char mode;
-};
-
-struct zip_t *zip_open(const char *zipname, int level, char mode) {
-    struct zip_t *zip = NULL;
-
-    if (!zipname || strlen(zipname) < 1) {
-        // zip_t archive name is empty or NULL
-        goto cleanup;
+    if (zip_set_permissions(&zip_archive, i, filename)) {
+      mz_zip_writer_end(&zip_archive);
+      ZIP_ERROR(R_ZIP_ESETZIPPERM, key, czipfile);
     }
+  }
 
-    if (level < 0) level = MZ_DEFAULT_LEVEL;
-    if ((level & 0xF) > MZ_UBER_COMPRESSION) {
-        // Wrong compression level
-        goto cleanup;
-    }
-
-    zip = (struct zip_t *)calloc((size_t)1, sizeof(struct zip_t));
-    if (!zip) goto cleanup;
-
-    zip->level = level;
-    zip->mode = mode;
-    switch (mode) {
-        case 'w':
-            // Create a new archive.
-            if (!mz_zip_writer_init_file(&(zip->archive), zipname, 0)) {
-                // Cannot initialize zip_archive writer
-                goto cleanup;
-            }
-            break;
-
-        case 'r':
-        case 'a':
-            if (!mz_zip_reader_init_file(
-                    &(zip->archive), zipname,
-                    level | MZ_ZIP_FLAG_DO_NOT_SORT_CENTRAL_DIRECTORY)) {
-                // An archive file does not exist or cannot initialize
-                // zip_archive reader
-                goto cleanup;
-            }
-
-            if (mode == 'a' &&
-                !mz_zip_writer_init_from_reader(&(zip->archive), zipname)) {
-                mz_zip_reader_end(&(zip->archive));
-                goto cleanup;
-            }
-
-            break;
-
-        default:
-            goto cleanup;
-    }
-
-    return zip;
-
-cleanup:
-    CLEANUP(zip);
-    return NULL;
-}
-
-void zip_close(struct zip_t *zip) {
-    if (zip) {
-        // Always finalize, even if adding failed for some reason, so we have a
-        // valid central directory.
-        mz_zip_writer_finalize_archive(&(zip->archive));
-
-        mz_zip_writer_end(&(zip->archive));
-        mz_zip_reader_end(&(zip->archive));
-
-        CLEANUP(zip);
-    }
-}
-
-int zip_entry_open(struct zip_t *zip, const char *entryname) {
-    size_t entrylen = 0;
-    mz_zip_archive *pzip = NULL;
-    mz_uint num_alignment_padding_bytes, level;
-
-    if (!zip || !entryname) {
-        return -1;
-    }
-
-    entrylen = strlen(entryname);
-    if (entrylen < 1) {
-        return -1;
-    }
-
-    pzip = &(zip->archive);
-
-    if (zip->mode == 'r') {
-        zip->entry.index = mz_zip_reader_locate_file(pzip, entryname, NULL, 0);
-        return (zip->entry.index < 0) ? -1 : 0;
-    }
-
-    zip->entry.index = zip->archive.m_total_files;
-    zip->entry.name = STRCLONE(entryname);
-    if (!zip->entry.name) {
-        // Cannot parse zip entry name
-        return -1;
-    }
-
-    zip->entry.comp_size = 0;
-    zip->entry.uncomp_size = 0;
-    zip->entry.uncomp_crc32 = MZ_CRC32_INIT;
-    zip->entry.offset = zip->archive.m_archive_size;
-    zip->entry.header_offset = zip->archive.m_archive_size;
-    memset(zip->entry.header, 0,
-           MZ_ZIP_LOCAL_DIR_HEADER_SIZE * sizeof(mz_uint8));
-    zip->entry.method = 0;
-
-    num_alignment_padding_bytes =
-        mz_zip_writer_compute_padding_needed_for_file_alignment(pzip);
-
-    if (!pzip->m_pState || (pzip->m_zip_mode != MZ_ZIP_MODE_WRITING)) {
-        // Wrong zip mode
-        return -1;
-    }
-    if (zip->level & MZ_ZIP_FLAG_COMPRESSED_DATA) {
-        // Wrong zip compression level
-        return -1;
-    }
-    // no zip64 support yet
-    if ((pzip->m_total_files == 0xFFFF) ||
-        ((pzip->m_archive_size + num_alignment_padding_bytes +
-          MZ_ZIP_LOCAL_DIR_HEADER_SIZE + MZ_ZIP_CENTRAL_DIR_HEADER_SIZE +
-          entrylen) > 0xFFFFFFFF)) {
-        // No zip64 support yet
-        return -1;
-    }
-    if (!mz_zip_writer_write_zeros(
-            pzip, zip->entry.offset,
-            num_alignment_padding_bytes + sizeof(zip->entry.header))) {
-        // Cannot memset zip entry header
-        return -1;
-    }
-
-    zip->entry.header_offset += num_alignment_padding_bytes;
-    if (pzip->m_file_offset_alignment) {
-        MZ_ASSERT((zip->entry.header_offset &
-                   (pzip->m_file_offset_alignment - 1)) == 0);
-    }
-    zip->entry.offset +=
-        num_alignment_padding_bytes + sizeof(zip->entry.header);
-
-    if (pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.offset, zip->entry.name,
-                       entrylen) != entrylen) {
-        // Cannot write data to zip entry
-        return -1;
-    }
-
-    zip->entry.offset += entrylen;
-    level = zip->level & 0xF;
-    if (level) {
-        zip->entry.state.m_pZip = pzip;
-        zip->entry.state.m_cur_archive_file_ofs = zip->entry.offset;
-        zip->entry.state.m_comp_size = 0;
-
-        if (tdefl_init(&(zip->entry.comp), mz_zip_writer_add_put_buf_callback,
-                       &(zip->entry.state),
-                       tdefl_create_comp_flags_from_zip_params(
-                           level, -15, MZ_DEFAULT_STRATEGY)) !=
-            TDEFL_STATUS_OKAY) {
-            // Cannot initialize the zip compressor
-            return -1;
-        }
-    }
-
-    return 0;
-}
-
-int zip_entry_close(struct zip_t *zip) {
-    mz_zip_archive *pzip = NULL;
-    mz_uint level;
-    tdefl_status done;
-    mz_uint16 entrylen;
-    time_t t;
-    struct tm *tm;
-    mz_uint16 dos_time, dos_date;
-    int status = -1;
-
-    if (!zip) {
-        // zip_t handler is not initialized
-        return -1;
-    }
-
-    if (zip->mode == 'r') {
-        return 0;
-    }
-
-    pzip = &(zip->archive);
-    level = zip->level & 0xF;
-    if (level) {
-        done = tdefl_compress_buffer(&(zip->entry.comp), "", 0, TDEFL_FINISH);
-        if (done != TDEFL_STATUS_DONE && done != TDEFL_STATUS_OKAY) {
-            // Cannot flush compressed buffer
-            goto cleanup;
-        }
-        zip->entry.comp_size = zip->entry.state.m_comp_size;
-        zip->entry.offset = zip->entry.state.m_cur_archive_file_ofs;
-        zip->entry.method = MZ_DEFLATED;
-    }
-
-    entrylen = (mz_uint16)strlen(zip->entry.name);
-    t = time(NULL);
-    tm = localtime(&t);
-    dos_time = (mz_uint16)(((tm->tm_hour) << 11) + ((tm->tm_min) << 5) +
-                           ((tm->tm_sec) >> 1));
-    dos_date = (mz_uint16)(((tm->tm_year + 1900 - 1980) << 9) +
-                           ((tm->tm_mon + 1) << 5) + tm->tm_mday);
-
-    // no zip64 support yet
-    if ((zip->entry.comp_size > 0xFFFFFFFF) ||
-        (zip->entry.offset > 0xFFFFFFFF)) {
-        // No zip64 support, yet
-        goto cleanup;
-    }
-
-    if (!mz_zip_writer_create_local_dir_header(
-            pzip, zip->entry.header, entrylen, 0, zip->entry.uncomp_size,
-            zip->entry.comp_size, zip->entry.uncomp_crc32, zip->entry.method, 0,
-            dos_time, dos_date)) {
-        // Cannot create zip entry header
-        goto cleanup;
-    }
-
-    if (pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.header_offset,
-                       zip->entry.header, sizeof(zip->entry.header)) !=
-        sizeof(zip->entry.header)) {
-        // Cannot write zip entry header
-        goto cleanup;
-    }
-
-    if (!mz_zip_writer_add_to_central_dir(
-            pzip, zip->entry.name, entrylen, NULL, 0, "", 0,
-            zip->entry.uncomp_size, zip->entry.comp_size,
-            zip->entry.uncomp_crc32, zip->entry.method, 0, dos_time, dos_date,
-            zip->entry.header_offset, 0)) {
-        // Cannot write to zip central dir
-        goto cleanup;
-    }
-
-    pzip->m_total_files++;
-    pzip->m_archive_size = zip->entry.offset;
-    status = 0;
-
-cleanup:
-    CLEANUP(zip->entry.name);
-    return status;
-}
-
-int zip_entry_write(struct zip_t *zip, const void *buf, size_t bufsize) {
-    mz_uint level;
-    mz_zip_archive *pzip = NULL;
-    tdefl_status status;
-
-    if (!zip) {
-        // zip_t handler is not initialized
-        return -1;
-    }
-
-    pzip = &(zip->archive);
-    if (buf && bufsize > 0) {
-        zip->entry.uncomp_size += bufsize;
-        zip->entry.uncomp_crc32 = (mz_uint32)mz_crc32(
-            zip->entry.uncomp_crc32, (const mz_uint8 *)buf, bufsize);
-
-        level = zip->level & 0xF;
-        if (!level) {
-            if ((pzip->m_pWrite(pzip->m_pIO_opaque, zip->entry.offset, buf,
-                                bufsize) != bufsize)) {
-                // Cannot write buffer
-                return -1;
-            }
-            zip->entry.offset += bufsize;
-            zip->entry.comp_size += bufsize;
-        } else {
-            status = tdefl_compress_buffer(&(zip->entry.comp), buf, bufsize,
-                                           TDEFL_NO_FLUSH);
-            if (status != TDEFL_STATUS_DONE && status != TDEFL_STATUS_OKAY) {
-                // Cannot compress buffer
-                return -1;
-            }
-        }
-    }
-
-    return 0;
-}
-
-int zip_entry_fwrite(struct zip_t *zip, const char *filename) {
-    int status = 0;
-    size_t n = 0;
-    FILE *stream = NULL;
-    mz_uint8 buf[MZ_ZIP_MAX_IO_BUF_SIZE] = {0};
-
-    if (!zip) {
-        // zip_t handler is not initialized
-        return -1;
-    }
-
-    stream = fopen(filename, "rb");
-    if (!stream) {
-        // Cannot open filename
-        return -1;
-    }
-
-    while ((n = fread(buf, sizeof(mz_uint8), MZ_ZIP_MAX_IO_BUF_SIZE, stream)) >
-           0) {
-        if (zip_entry_write(zip, buf, n) < 0) {
-            status = -1;
-            break;
-        }
-    }
-    fclose(stream);
-
-    return status;
-}
-
-int zip_entry_read(struct zip_t *zip, void **buf, size_t *bufsize) {
-    mz_zip_archive *pzip = NULL;
-    mz_uint idx;
-
-    if (!zip) {
-        // zip_t handler is not initialized
-        return -1;
-    }
-
-    if (zip->mode != 'r' || zip->entry.index < 0) {
-        // the entry is not found or we do not have read access
-        return -1;
-    }
-
-    pzip = &(zip->archive);
-    idx = (mz_uint)zip->entry.index;
-    if (mz_zip_reader_is_file_a_directory(pzip, idx)) {
-        // the entry is a directory
-        return -1;
-    }
-
-    *buf = mz_zip_reader_extract_to_heap(pzip, idx, bufsize, 0);
-    return (*buf) ? 0 : -1;
-}
-
-int zip_entry_fread(struct zip_t *zip, const char *filename) {
-    mz_zip_archive *pzip = NULL;
-    mz_uint idx;
-
-    if (!zip) {
-        // zip_t handler is not initialized
-        return -1;
-    }
-
-    if (zip->mode != 'r' || zip->entry.index < 0) {
-        // the entry is not found or we do not have read access
-        return -1;
-    }
-
-    pzip = &(zip->archive);
-    idx = (mz_uint)zip->entry.index;
-    if (mz_zip_reader_is_file_a_directory(pzip, idx)) {
-        // the entry is a directory
-        return -1;
-    }
-
-    return (mz_zip_reader_extract_to_file(pzip, idx, filename, 0)) ? 0 : -1;
-}
-
-int zip_entry_extract(struct zip_t *zip,
-                      size_t (*on_extract)(void *arg, unsigned long long offset,
-                                           const void *buf, size_t bufsize),
-                      void *arg) {
-    mz_zip_archive *pzip = NULL;
-    mz_uint idx;
-
-    if (!zip) {
-        // zip_t handler is not initialized
-        return -1;
-    }
-
-    if (zip->mode != 'r' || zip->entry.index < 0) {
-        // the entry is not found or we do not have read access
-        return -1;
-    }
-
-    pzip = &(zip->archive);
-    idx = (mz_uint)zip->entry.index;
-
-    return (mz_zip_reader_extract_to_callback(pzip, idx, on_extract, arg, 0))
-               ? 0
-               : -1;
-}
-
-int zip_create(const char *zipname, const char *filenames[], size_t len) {
-    int status = 0;
-    size_t i;
-    mz_zip_archive zip_archive;
-
-    if (!zipname || strlen(zipname) < 1) {
-        // zip_t archive name is empty or NULL
-        return -1;
-    }
-
-    // Create a new archive.
-    if (!memset(&(zip_archive), 0, sizeof(zip_archive))) {
-        // Cannot memset zip archive
-        return -1;
-    }
-
-    if (!mz_zip_writer_init_file(&zip_archive, zipname, 0)) {
-        // Cannot initialize zip_archive writer
-        return -1;
-    }
-
-    for (i = 0; i < len; ++i) {
-        const char *name = filenames[i];
-        if (!name) {
-            status = -1;
-            break;
-        }
-
-        if (!mz_zip_writer_add_file(&zip_archive, basename(name), name, "", 0,
-                                    ZIP_DEFAULT_COMPRESSION_LEVEL)) {
-            // Cannot add file to zip_archive
-            status = -1;
-            break;
-        }
-    }
-
-    mz_zip_writer_finalize_archive(&zip_archive);
+  if (!mz_zip_writer_finalize_archive(&zip_archive)) {
     mz_zip_writer_end(&zip_archive);
-    return status;
-}
+    ZIP_ERROR(R_ZIP_ECREATE, czipfile);
+  }
 
-int zip_extract(const char *zipname, const char *dir,
-                int (*on_extract)(const char *filename, void *arg), void *arg) {
-    int status = -1;
-    mz_uint i, n;
-    char path[MAX_PATH + 1] = {0};
-    mz_zip_archive zip_archive;
-    mz_zip_archive_file_stat info;
-    size_t dirlen = 0;
+  if (!mz_zip_writer_end(&zip_archive)) {
+    ZIP_ERROR(R_ZIP_ECREATE, czipfile);
+  }
 
-    if (!memset(&(zip_archive), 0, sizeof(zip_archive))) {
-        // Cannot memset zip archive
-        return -1;
-    }
-
-    if (!zipname || !dir) {
-        // Cannot parse zip archive name
-        return -1;
-    }
-
-    dirlen = strlen(dir);
-    if (dirlen + 1 > MAX_PATH) {
-        return -1;
-    }
-
-    // Now try to open the archive.
-    if (!mz_zip_reader_init_file(&zip_archive, zipname, 0)) {
-        // Cannot initialize zip_archive reader
-        return -1;
-    }
-
-    strcpy(path, dir);
-    if (!ISSLASH(path[dirlen - 1])) {
-#if defined _WIN32 || defined __WIN32__
-        path[dirlen] = '\\';
-#else
-        path[dirlen] = '/';
-#endif
-        ++dirlen;
-    }
-
-    // Get and print information about each file in the archive.
-    n = mz_zip_reader_get_num_files(&zip_archive);
-    for (i = 0; i < n; ++i) {
-        if (!mz_zip_reader_file_stat(&zip_archive, i, &info)) {
-            // Cannot get information about zip archive;
-            goto out;
-        }
-        strncpy(&path[dirlen], info.m_filename, MAX_PATH - dirlen);
-        if (mkpath(path) < 0) {
-            // Cannot make a path
-            goto out;
-        }
-
-        if (!mz_zip_reader_extract_to_file(&zip_archive, i, path, 0)) {
-            // Cannot extract zip archive to file
-            goto out;
-        }
-
-        if (on_extract) {
-            if (on_extract(path, arg) < 0) {
-                goto out;
-            }
-        }
-    }
-    status = 0;
-
-out:
-    // Close the archive, freeing any resources it was using
-    if (!mz_zip_reader_end(&zip_archive)) {
-        // Cannot end zip reader
-        status = -1;
-    }
-
-    return status;
-}
-
-int zip_list(const char *zipname, size_t *num, char ***files,
-	     size_t **compressed_size, size_t **uncompressed_size) {
-
-    mz_uint i, n = 0;
-    mz_zip_archive zip_archive;
-    mz_zip_archive_file_stat info;
-    int status = 0;
-
-    if (!memset(&(zip_archive), 0, sizeof(zip_archive))) {
-        // Cannot memset zip archive
-        return -1;
-    }
-
-    if (!zipname) {
-        // Cannot parse zip archive name
-        return -1;
-    }
-
-    if (!mz_zip_reader_init_file(&zip_archive, zipname, 0)) {
-        // Cannot initialize zip_archive reader
-        return -1;
-    }
-
-    *num = n = mz_zip_reader_get_num_files(&zip_archive);
-    *files = 0;
-    *compressed_size = 0;
-    *uncompressed_size = 0;
-    *files = calloc(n, sizeof(char *));
-    *compressed_size = calloc(n, sizeof(size_t));
-    *uncompressed_size = calloc(n, sizeof(size_t));
-    if (!*files || !*compressed_size || !*uncompressed_size) {
-        status = -1; goto out;
-    }
-
-    for (i = 0; i < n; ++i) {
-        size_t l;
-        if (!mz_zip_reader_file_stat(&zip_archive, i, &info)) {
-	    // Cannot get information about zip archive;
-	    status = -1; goto out;
-	}
-
-	l = strlen(info.m_filename);
-	if (l >= MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE) {
-	  info.m_filename[MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE - 1] = '0';
-	}
-	(*files)[i] = strdup(info.m_filename);
-	if (!(*files)[i]) { status = -1; goto out; }
-	(*compressed_size)[i] = info.m_comp_size;
-	(*uncompressed_size)[i] = info.m_uncomp_size;
-    }
-
- out:
-    if (!mz_zip_reader_end(&zip_archive)) {
-        // Cannot end zip reader
-        status = -1;
-    }
-
-    if (status != 0) {
-        if (*files) {
-	    for (i = 0; i < n; ++i) if ((*files)[i]) free((*files)[i]);
-	    free(*files);
-	}
-	if (*compressed_size) free(*compressed_size);
-	if (*uncompressed_size) free(*uncompressed_size);
-	*files = 0;
-	*compressed_size = 0;
-	*uncompressed_size = 0;
-    }
-
-    return status;
+  /* TODO: return info */
+  return 0;
 }

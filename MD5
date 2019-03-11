@@ -1,10 +1,10 @@
-850376daccecdbf427261e24040afc1d *DESCRIPTION
+a1c01571f22d290529f4d42a5adb191e *DESCRIPTION
 8da5439c5616300452bf0550c55f35b1 *NAMESPACE
-01e1c053850633ba3dc80325c4648c7e *NEWS.md
+65b0e53840560e16d5558647cf4a8325 *NEWS.md
 18b468462f7c0a6ee3e8e16e2f969e02 *R/assertions.R
 50b6964f676a61448bdcf2d67640b7d9 *R/process.R
-cad90a2d29207302bb5766c4b96bb329 *R/utils.R
-280f17aac29d71500a5959a94e348718 *R/zip.R
+fbd61928c884a42926aefae273864361 *R/utils.R
+da9f5ea39778a7bf3493e9bf36438bda *R/zip.R
 1d0cda8c35d3c7c30c6fb08f9cb0bb84 *README.md
 cbc98b65b643332dd9c918650d638d2c *inst/example.zip
 e185a34d00ee91b9b6fdf4e7e2fad247 *man/unzip.Rd
@@ -16,7 +16,7 @@ b893e07a21ada545d7fbe94f81c62c8b *src/Makevars
 60d7fff28509526f3dd12606b0f653d4 *src/Makevars.win
 244cfdf4c03576c1b26166f43f44fefe *src/init.c
 6800ba718017862bb517c8f874b24da8 *src/install.libs.R
-fa2999ff5855c8804228ce70b2995413 *src/miniz.c
+e3b55031a4ce543f95eab7122ee66175 *src/miniz.c
 03e344d651168a2192c5cad84fb5a3a6 *src/miniz.h
 b568e7b6c792f5916cbf1247955e1dfd *src/rzip.c
 51b8cca7a5233203f6be8050da60b4da *src/tools/cmdunzip.c
@@ -24,7 +24,7 @@ c30fa793db8a3b54ae917fe0399baaad *src/tools/cmdzip.c
 2aefbd83633c9833acbd9d6c6fd684bd *src/zip.c
 b493fb7ddd2312e572eefdc140c87521 *src/zip.h
 ef3d69ea2140111e66f6fcbd297d3437 *tests/testthat.R
-ef17e994963903a7680cbae6ef480349 *tests/testthat/helper.R
+a2afc0572856f2713c5712d40ab92b82 *tests/testthat/helper.R
 e9aa901de042db2e4282fe4d5af7f1f3 *tests/testthat/test-errors.R
 46eec43a062cc9dd6ceee40d649c71a8 *tests/testthat/test-get-zip-data-path.R
 3abdff7a3bc7a4807aef44468d0338b2 *tests/testthat/test-get-zip-data.R
@@ -33,5 +33,5 @@ c043872e7de168457d1ada9ea461b54f *tests/testthat/test-unzip-process.R
 cf20d01409ec95008ecad021e1eb237e *tests/testthat/test-unzip.R
 cdce25d07d9b132a29d87777d6736c00 *tests/testthat/test-zip-list.R
 e2c774bf8e7f9f045d3c7687484d7146 *tests/testthat/test-zip-process.R
-f64a6d48f601aa6492583a6738a9d7d6 *tests/testthat/test-zip.R
+a93af651c3353713fb51f032ce3d5d97 *tests/testthat/test-zip.R
 7ae1b24259fef377bd1c05159ed2a097 *tests/testthat/test-zipr.R

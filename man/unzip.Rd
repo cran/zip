@@ -4,8 +4,7 @@
 \alias{unzip}
 \title{Uncompress 'zip' Archives}
 \usage{
-unzip(zipfile, files = NULL, overwrite = TRUE, junkpaths = FALSE,
-  exdir = ".")
+unzip(zipfile, files = NULL, overwrite = TRUE, junkpaths = FALSE, exdir = ".")
 }
 \arguments{
 \item{zipfile}{Path to the zip file to uncompress.}
@@ -27,6 +26,10 @@ exist, it will be created.}
 \description{
 \code{unzip()} always restores modification times of the extracted files and
 directories.
+
+\if{html}{\out{<link rel="stylesheet" type="text/css" href="../doc/assets/extra.css">}}
+
+\if{html}{\out{<script src="../doc/assets/rd.js"></script>}}
 }
 \section{Permissions}{
 
@@ -36,13 +39,14 @@ the permissions will be restored.
 }
 
 \examples{
-## Some files to zip up
+## temporary directory, to avoid messing up the user's workspace.
 dir.create(tmp <- tempfile())
-cat("first file", file = file.path(tmp, "file1"))
-cat("second file", file = file.path(tmp, "file2"))
+dir.create(file.path(tmp, "mydir"))
+cat("first file", file = file.path(tmp, "mydir", "file1"))
+cat("second file", file = file.path(tmp, "mydir", "file2"))
 
 zipfile <- tempfile(fileext = ".zip")
-zipr(zipfile, tmp)
+zip::zip(zipfile, "mydir", root = tmp)
 
 ## List contents
 zip_list(zipfile)
@@ -50,4 +54,5 @@ zip_list(zipfile)
 ## Extract
 tmp2 <- tempfile()
 unzip(zipfile, exdir = tmp2)
+dir(tmp2)
 }

@@ -94,10 +94,17 @@ make_a_zip <- function(mtime = Sys.time(), envir = parent.frame(),
   list(zip = zip, ex = tmp)
 }
 
-expect_deprecated <- function(expr) {
-  expect_silent(
-    withCallingHandlers(
-      expr,
-      "deprecated" = function(e) invokeRestart("muffleMessage"))
+local_temp_dir <- function(pattern = "file", tmpdir = tempdir(),
+                           fileext = "", envir = parent.frame()) {
+  path <- tempfile(pattern = pattern, tmpdir = tmpdir, fileext = fileext)
+  dir.create(path)
+  setwd(path)
+  do.call(
+    withr::defer,
+    list(
+      bquote(unlink(.(path), recursive = TRUE)),
+      envir = envir
+    )
   )
+  invisible(path)
 }

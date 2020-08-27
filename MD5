@@ -1,6 +1,6 @@
-b95bdbcb9406ec9db6c430f3a9541ea1 *DESCRIPTION
+9a3c94340edfbc87f661bbe99182b4a1 *DESCRIPTION
 8da5439c5616300452bf0550c55f35b1 *NAMESPACE
-5300f7b7d7c1611e6aeff4caf2dafd62 *NEWS.md
+5573c836dd5a14c19d6aa9f9de244103 *NEWS.md
 18b468462f7c0a6ee3e8e16e2f969e02 *R/assertions.R
 bd801ef77e8aa5133a5e78fd1f223fa0 *R/process.R
 caca836e4d325e1fc6adc94da25b4be1 *R/utils.R
@@ -33,7 +33,7 @@ f6def66021ca33c70deba6f5dfc4daf8 *tests/testthat/test-errors.R
 5f56fcfe3aceb228eec179544f86cd77 *tests/testthat/test-get-zip-data-path.R
 6628361abbfce3ee7d03837136bf1316 *tests/testthat/test-get-zip-data.R
 6280404b4653fab7e99263ea5b81bf90 *tests/testthat/test-large-files.R
-a1b0c049807da71525e144a8f3b88ee6 *tests/testthat/test-paths.R
+d9017973ed34be136e71f62ad44e8ce3 *tests/testthat/test-paths.R
 8095c24eaa7c9bd3c2dd8fa5a46923de *tests/testthat/test-unzip-process.R
 b59669b71779322c2410b3a81ec63619 *tests/testthat/test-unzip.R
 49a826d2aa876b0fe4e30a57413122c7 *tests/testthat/test-zip-list.R

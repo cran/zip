@@ -1,12 +1,12 @@
-8c59167d6852d8eb3d52da2d602bd7fd *DESCRIPTION
+590261d225be25349d177a4530197db0 *DESCRIPTION
 56f528dc359b4705406a75443b9924cd *LICENSE
 8da5439c5616300452bf0550c55f35b1 *NAMESPACE
-320fb0b6fb369d8c33b0a513cdf0c161 *NEWS.md
+2e75f886518eaff4c4f1dd2cde900a9b *NEWS.md
 18b468462f7c0a6ee3e8e16e2f969e02 *R/assertions.R
 bd801ef77e8aa5133a5e78fd1f223fa0 *R/process.R
 caca836e4d325e1fc6adc94da25b4be1 *R/utils.R
 fd42c0fb411ec6d04c8a409372929ab9 *R/zip.R
-ef549a9fc84c112030df1b8aad5d2866 *README.md
+5e192d6b189f2dcd94c4eb13be3420ff *README.md
 cbc98b65b643332dd9c918650d638d2c *inst/example.zip
 1920717b17084983230870bd1633140c *man/unzip.Rd
 e66cf4de8adaebc7f739582f6b347877 *man/unzip_process.Rd
@@ -17,8 +17,8 @@ efbaa2b23451f201bc0ae6bff3f6808e *src/Makevars
 0afaa87674ed93155e80603c361f6a1d *src/Makevars.win
 244cfdf4c03576c1b26166f43f44fefe *src/init.c
 3d9baaf4e43935f0dcb36296206d8226 *src/install.libs.R
-9b0c5f087267f8e7b7c38418eae45655 *src/miniz.c
-03e344d651168a2192c5cad84fb5a3a6 *src/miniz.h
+389087ffe2e8c7dcc82cf2762cbb20c9 *src/miniz.c
+6f1337d16f9f721d367f88c729169880 *src/miniz.h
 9b003104a1437421f74c70f870940634 *src/rzip.c
 4ce26261213b6613183d390101444af7 *src/tools/cmdunzip.c
 2c6ccde20b19c92f13e8e13293da8d06 *src/tools/cmdzip.c

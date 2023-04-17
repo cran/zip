@@ -44,7 +44,26 @@ warn_for_dotdot <- function(files) {
   files
 }
 
+warn_for_colon <- function(files) {
+  if (any(grepl(":", files, fixed = TRUE))) {
+    warning("Some paths include a `:` character, this might cause issues ",
+            "when uncompressing the zip file on Windows.")
+  }
+}
+
+fix_absolute_paths <- function(files) {
+  if (any(substr(files, 1, 1) == "/")) {
+    warning("Dropping leading `/` from paths, all paths in a zip file ",
+            "must be relative paths.")
+    files <- sub("^/", "", files)
+  }
+  files
+}
+
 get_zip_data_nopath <- function(files, recurse) {
+  if ("." %in% files) {
+    files <- c(setdiff(files, "."), dir(all.files=TRUE, no.. = TRUE))
+  }
   if (recurse && length(files)) {
     data <- do.call(rbind, lapply(files, get_zip_data_nopath_recursive))
     dup <- duplicated(data$files)
@@ -93,6 +112,9 @@ get_zip_data_path_recursive <- function(x) {
 }
 
 get_zip_data_nopath_recursive <- function(x) {
+  if ("." %in% x) {
+    x <- c(setdiff(x, "."), dir(all.files=TRUE, no.. = TRUE))
+  }
   x <- normalizePath(x)
   wd <- getwd()
   on.exit(setwd(wd))
@@ -129,5 +151,13 @@ need_packages <- function(pkgs, what = "this function") {
     if (!requireNamespace(p, quietly = TRUE)) {
       stop(sprintf("The `%s` package is needed for %s", p, what))
     }
+  }
+}
+
+enc2c <- function(x) {
+  if (.Platform$OS.type == "windows") {
+    enc2utf8(x)
+  } else {
+    enc2native(x)
   }
 }

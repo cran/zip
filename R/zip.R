@@ -22,11 +22,6 @@ NULL
 #' zip changes the current directory to `root` before creating the
 #' archive.
 #'
-#' (Absolute paths are also kept. Note that this might result
-#' non-portable archives: some zip tools do not handle zip archives that
-#' contain absolute file names, or file names that start with `../` or
-#' `./`. zip warns you if this should happen.)
-#'
 #' E.g. consider the following directory structure:
 #'
 #' ```{r echo = FALSE, comment = ""}
@@ -54,6 +49,10 @@ NULL
 #' setwd(oldwd)
 #' ```
 #'
+#' Note that zip refuses to store files with absolute paths, and chops
+#' off the leading `/` character from these file names. This is because
+#' only relative paths are allowed in zip files.
+#'
 #' ### Cherry picking mode
 #'
 #' In cherry picking mode, the selected files and directories
@@ -76,6 +75,11 @@ NULL
 #' setwd(oldwd)
 #' ```
 #'
+#' From zip version 2.3.0, `"."` has a special meaning in the `files`
+#' argument: it will include the files (and possibly directories) within
+#' the current working directory, but **not** the working directory itself.
+#' Note that this only applies to cherry picking mode.
+#'
 #' ## Permissions:
 #'
 #' `zip()` (and `zip_append()`, etc.) add the permissions of
@@ -93,7 +97,8 @@ NULL
 #' `mode` argument.
 #'
 #' @param zipfile The zip file to create. If the file exists, `zip`
-#'   overwrites it, but `zip_append` appends to it.
+#'   overwrites it, but `zip_append` appends to it. If it is a directory
+#'   an error is thrown.
 #' @param files List of file to add to the archive. See details below
 #'    about absolute and relative path names.
 #' @param recurse Whether to add the contents of directories recursively.
@@ -176,16 +181,22 @@ zipr_append <- function(zipfile, files, recurse = TRUE,
 
 zip_internal <- function(zipfile, files, recurse, compression_level,
                          append, root, keep_path, include_directories) {
+  zipfile <- path.expand(zipfile)
+  if (dir.exists(zipfile)) {
+    stop("zip file at `", zipfile, "` already exists and it is a directory")
+  }
   oldwd <- setwd(root)
   on.exit(setwd(oldwd), add = TRUE)
 
   if (any(! file.exists(files))) stop("Some files do not exist")
 
   data <- get_zip_data(files, recurse, keep_path, include_directories)
+  data$key <- fix_absolute_paths(data$key)
+  warn_for_colon(data$key)
   warn_for_dotdot(data$key)
 
-  .Call(c_R_zip_zip, enc2utf8(zipfile), enc2utf8(data$key),
-        enc2utf8(data$file), data$dir, file.info(data$file)$mtime,
+  .Call(c_R_zip_zip, enc2c(zipfile), enc2c(data$key),
+        enc2c(data$file), data$dir, file.info(data$file)$mtime,
         as.integer(compression_level), append)
 
   invisible(zipfile)
@@ -205,7 +216,7 @@ zip_internal <- function(zipfile, files, recurse, compression_level,
 #' @export
 
 zip_list <- function(zipfile) {
-  zipfile <- enc2utf8(normalizePath(zipfile))
+  zipfile <- enc2c(normalizePath(zipfile))
   res <- .Call(c_R_zip_list, zipfile)
   df <- data.frame(
     stringsAsFactors = FALSE,
@@ -272,10 +283,11 @@ unzip <- function(zipfile, files = NULL, overwrite = TRUE,
     is_flag(junkpaths),
     is_string(exdir))
 
-  zipfile <- enc2utf8(normalizePath(zipfile))
-  if (!is.null(files)) files <- enc2utf8(files)
+  zipfile <- enc2c(normalizePath(zipfile))
+  if (!is.null(files)) files <- enc2c(files)
+  exdir <- sub("/+$", "", exdir)
   mkdirp(exdir)
-  exdir <- enc2utf8(normalizePath(exdir))
+  exdir <- enc2c(normalizePath(exdir))
 
   .Call(c_R_zip_unzip, zipfile, files, overwrite, junkpaths, exdir)
 

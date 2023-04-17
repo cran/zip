@@ -49,7 +49,8 @@ zipr_append(
 }
 \arguments{
 \item{zipfile}{The zip file to create. If the file exists, \code{zip}
-overwrites it, but \code{zip_append} appends to it.}
+overwrites it, but \code{zip_append} appends to it. If it is a directory
+an error is thrown.}
 
 \item{files}{List of file to add to the archive. See details below
 about absolute and relative path names.}
@@ -91,11 +92,6 @@ be the root of the archive, and the paths will be fully kept.
 zip changes the current directory to \code{root} before creating the
 archive.
 
-(Absolute paths are also kept. Note that this might result
-non-portable archives: some zip tools do not handle zip archives that
-contain absolute file names, or file names that start with \verb{../} or
-\verb{./}. zip warns you if this should happen.)
-
 E.g. consider the following directory structure:
 
 \if{html}{\out{<div class="sourceCode">}}\preformatted{.
@@ -122,6 +118,10 @@ zip_list("../test.zip")[, "filename", drop = FALSE]
 #> 3      ../foo2/
 #> 4 ../foo2/file3
 }\if{html}{\out{</div>}}
+
+Note that zip refuses to store files with absolute paths, and chops
+off the leading \code{/} character from these file names. This is because
+only relative paths are allowed in zip files.
 }
 
 \subsection{Cherry picking mode}{
@@ -146,6 +146,11 @@ zip_list("../test2.zip")[, "filename", drop = FALSE]
 #> 3      foo2/
 #> 4 foo2/file3
 }\if{html}{\out{</div>}}
+
+From zip version 2.3.0, \code{"."} has a special meaning in the \code{files}
+argument: it will include the files (and possibly directories) within
+the current working directory, but \strong{not} the working directory itself.
+Note that this only applies to cherry picking mode.
 }
 
 }

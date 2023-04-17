@@ -1,8 +1,40 @@
 
+test_that("large zip files", {
+  skip_on_cran()
+
+  dir.create(tmp <- tempfile("zip-test-large-"))
+  tmpzip <- tempfile("zip-test-large-", fileext = ".zip")
+  on.exit(unlink(c(tmp, tmpzip), recursive = TRUE), add = TRUE)
+
+  oc <- file(file.path(tmp, "file1"), open = "wb")
+  for (i in 1:6) {
+    data <- runif(1e7)
+    writeBin(data, oc)
+  }
+  close(oc)
+  writeLines("hi there", file.path(tmp, "file2"))
+
+  zip::zip(tmpzip, tmp, compression_level = 0, mode = "cherry-pick")
+  zip::zip_list(tmpzip)
+
+  unlink(tmp, recursive = TRUE)
+  zip::unzip(tmpzip, exdir = dirname(tmp))
+
+  expect_true(file.exists(tmp))
+  expect_true(file.exists(file.path(tmp, "file1")))
+  expect_true(file.exists(file.path(tmp, "file2")))
+
+  expect_true(file.size(file.path(tmp, "file1")) > 450000000)
+  expect_true(file.size(tmpzip) > 450000000)
+})
+
 test_that("can compress / uncompress large files", {
 
   skip_on_cran()
-  if (! nzchar(Sys.getenv("ZIP_LONG_TESTS"))) skip("takes long")
+  if (! nzchar(Sys.getenv("ZIP_LONG_TESTS")) &&
+      ! nzchar(Sys.getenv("CI"))) {
+    skip("takes long")
+  }
 
   ## Note: it will be also skipped if we cannot find a reasonable quick
   ## way to create a 5GB file.
@@ -33,7 +65,10 @@ test_that("can compress / uncompress large files", {
 test_that("can compress / uncompress many files", {
 
   skip_on_cran()
-  if (! nzchar(Sys.getenv("ZIP_LONG_TESTS"))) skip("takes long")
+  if (! nzchar(Sys.getenv("ZIP_LONG_TESTS")) &&
+      ! nzchar(Sys.getenv("CI"))) {
+    skip("takes long")
+  }
 
   tmp <- test_temp_dir()
   for (i in 1:70000) cat("file", i, file = file.path(tmp, i))

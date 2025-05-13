@@ -1,6 +1,4 @@
-
 test_that("can list a zip file", {
-
   dir.create(tmp <- tempfile())
   cat("first file", file = file.path(tmp, "file1"))
   cat("second file", file = file.path(tmp, "file2"))
@@ -24,9 +22,23 @@ test_that("can list a zip file", {
 
   expect_equal(
     colnames(list),
-    c("filename", "compressed_size", "uncompressed_size", "timestamp",
-      "permissions", "crc32", "offset")
+    c(
+      "filename",
+      "compressed_size",
+      "uncompressed_size",
+      "timestamp",
+      "permissions",
+      "crc32",
+      "offset",
+      "type"
+    )
   )
   expect_true(is.numeric(list$offset))
   expect_true(inherits(list$crc32, 'hexmode'))
+})
+
+test_that("symlinks", {
+  options(width = 200)
+  zf <- test_path("fixtures/symlink.zip")
+  expect_snapshot(zip_list(zf)$type)
 })

@@ -1,4 +1,3 @@
-
 test_that("warning for colon", {
   skip_on_os("windows")
 
@@ -47,7 +46,16 @@ test_that("backslash is an error", {
   on.exit(unlink(c(tmp, tmpzip), recursive = TRUE), add = TRUE)
 
   writeLines("boo", file.path(tmp, "real\\bad"))
-  expect_error(zip(tmpzip, tmp, mode = "cherry-pick"))
+  expect_snapshot(
+    error = TRUE,
+    zip(tmpzip, tmp, mode = "cherry-pick"),
+    transform = function(x) {
+      x <- transform_tempdir(x)
+      x <- gsub("zip-test-bs-[^./]+\\b", "zip-test-bs-<random>", x)
+      x <- sub("file zip.c:[0-9]+", "file zip.c:<line>", x)
+      x
+    }
+  )
 })
 
 test_that("extracting absolute path", {

@@ -446,6 +446,116 @@ test_that("example", {
   )
 })
 
+test_that("zip_append replaces existing file with same key", {
+  on.exit(try(unlink(c(zipfile, tmp), recursive = TRUE)))
+
+  dir.create(tmp <- tempfile())
+  cat("original content", file = file.path(tmp, "file1"))
+  cat("other file", file = file.path(tmp, "file2"))
+
+  zipfile <- tempfile(fileext = ".zip")
+  withr::with_dir(dirname(tmp), zip(zipfile, basename(tmp)))
+
+  cat("updated content", file = file.path(tmp, "file1"))
+  withr::with_dir(
+    dirname(tmp),
+    zip_append(zipfile, file.path(basename(tmp), "file1"))
+  )
+
+  lst <- zip_list(zipfile)
+  # Replaced entry moves to the end; non-replaced entries retain their order
+  expect_equal(
+    lst$filename,
+    c(bns(tmp), file.path(basename(tmp), c("file2", "file1")))
+  )
+
+  exdir <- tempfile()
+  on.exit(try(unlink(exdir, recursive = TRUE)), add = TRUE)
+  unzip(zipfile, exdir = exdir)
+  expect_equal(
+    readLines(file.path(exdir, basename(tmp), "file1"), warn = FALSE),
+    "updated content"
+  )
+})
+
+test_that("zip_append replaces multiple existing entries", {
+  on.exit(try(unlink(c(zipfile, tmp), recursive = TRUE)))
+
+  dir.create(tmp <- tempfile())
+  cat("a1", file = file.path(tmp, "a"))
+  cat("b1", file = file.path(tmp, "b"))
+  cat("c1", file = file.path(tmp, "c"))
+
+  zipfile <- tempfile(fileext = ".zip")
+  withr::with_dir(
+    dirname(tmp),
+    zip(
+      zipfile,
+      file.path(basename(tmp), c("a", "b", "c")),
+      include_directories = FALSE
+    )
+  )
+  expect_equal(nrow(zip_list(zipfile)), 3L)
+
+  cat("a2", file = file.path(tmp, "a"))
+  cat("c2", file = file.path(tmp, "c"))
+  withr::with_dir(
+    dirname(tmp),
+    zip_append(
+      zipfile,
+      file.path(basename(tmp), c("a", "c")),
+      include_directories = FALSE
+    )
+  )
+
+  lst <- zip_list(zipfile)
+  expect_equal(nrow(lst), 3L)
+  expect_equal(lst$filename, file.path(basename(tmp), c("b", "a", "c")))
+
+  exdir <- tempfile()
+  on.exit(try(unlink(exdir, recursive = TRUE)), add = TRUE)
+  unzip(zipfile, exdir = exdir)
+  expect_equal(
+    readLines(file.path(exdir, basename(tmp), "a"), warn = FALSE),
+    "a2"
+  )
+  expect_equal(
+    readLines(file.path(exdir, basename(tmp), "b"), warn = FALSE),
+    "b1"
+  )
+  expect_equal(
+    readLines(file.path(exdir, basename(tmp), "c"), warn = FALSE),
+    "c2"
+  )
+})
+
+test_that("zip_append without conflicts still works", {
+  on.exit(try(unlink(c(zipfile, tmp), recursive = TRUE)))
+
+  dir.create(tmp <- tempfile())
+  cat("file1", file = file.path(tmp, "file1"))
+
+  zipfile <- tempfile(fileext = ".zip")
+  withr::with_dir(
+    dirname(tmp),
+    zip(zipfile, file.path(basename(tmp), "file1"), include_directories = FALSE)
+  )
+
+  cat("file2", file = file.path(tmp, "file2"))
+  withr::with_dir(
+    dirname(tmp),
+    zip_append(
+      zipfile,
+      file.path(basename(tmp), "file2"),
+      include_directories = FALSE
+    )
+  )
+
+  lst <- zip_list(zipfile)
+  expect_equal(nrow(lst), 2L)
+  expect_equal(lst$filename, file.path(basename(tmp), c("file1", "file2")))
+})
+
 test_that("can omit directories", {
   on.exit(try(unlink(c(zipfile, tmp), recursive = TRUE)))
 
@@ -467,4 +577,88 @@ test_that("can omit directories", {
     list$filename,
     file.path(basename(tmp), c("file1", "file2"))
   )
+})
+
+test_that("unzip() returns a data frame with file info", {
+  on.exit(try(unlink(c(zipfile, tmp, exdir), recursive = TRUE)))
+
+  dir.create(tmp <- tempfile())
+  cat("first file", file = file.path(tmp, "file1"))
+  cat("second file", file = file.path(tmp, "file2"))
+
+  zipfile <- tempfile(fileext = ".zip")
+  withr::with_dir(dirname(tmp), zip(zipfile, basename(tmp)))
+
+  exdir <- tempfile()
+  result <- unzip(zipfile, exdir = exdir)
+
+  expect_s3_class(result, "data.frame")
+  expect_equal(
+    result$filename,
+    c(bns(tmp), file.path(basename(tmp), c("file1", "file2")))
+  )
+  expect_true(all(file.exists(result$path)))
+  expect_s3_class(result$timestamp, "POSIXct")
+  expect_s3_class(result$permissions, "octmode")
+  expect_s3_class(result$crc32, "hexmode")
+})
+
+test_that("unzip() path column matches zip_list() metadata", {
+  on.exit(try(unlink(c(zipfile, tmp, exdir), recursive = TRUE)))
+
+  dir.create(tmp <- tempfile())
+  cat("hello", file = file.path(tmp, "a.txt"))
+
+  zipfile <- tempfile(fileext = ".zip")
+  withr::with_dir(dirname(tmp), zip(zipfile, basename(tmp)))
+
+  exdir <- tempfile()
+  result <- unzip(zipfile, exdir = exdir)
+  listing <- zip_list(zipfile)
+
+  expect_equal(result$filename, listing$filename)
+  expect_equal(result$compressed_size, listing$compressed_size)
+  expect_equal(result$uncompressed_size, listing$uncompressed_size)
+  expect_equal(result$crc32, listing$crc32)
+  expect_equal(result$type, listing$type)
+})
+
+test_that("unzip() with junkpaths returns correct paths", {
+  on.exit(try(unlink(c(zipfile, tmp, exdir), recursive = TRUE)))
+
+  dir.create(tmp <- tempfile())
+  cat("hi", file = file.path(tmp, "file1"))
+
+  zipfile <- tempfile(fileext = ".zip")
+  withr::with_dir(
+    dirname(tmp),
+    zip(zipfile, basename(tmp), include_directories = FALSE)
+  )
+
+  exdir <- tempfile()
+  result <- unzip(zipfile, exdir = exdir, junkpaths = TRUE)
+
+  expect_equal(basename(result$path), basename(result$filename))
+  expect_true(all(file.exists(result$path)))
+})
+
+test_that("zip() shows progress bar when zip.progress = TRUE", {
+  skip_if_not_installed("cli")
+
+  tmp <- test_temp_dir()
+  cat("file content", file = file.path(tmp, "file1"))
+  cat("more content", file = file.path(tmp, "file2"))
+  zipfile <- test_temp_file(".zip", create = FALSE)
+
+  withr::local_options(zip.progress = TRUE, cli.progress_show_after = -1)
+  withr::local_dir(dirname(tmp))
+  output <- capture.output(
+    asNamespace("cli")$cli_with_ticks(
+      zip(zipfile, basename(tmp))
+    ),
+    type = "message"
+  )
+
+  expect_true(file.exists(zipfile))
+  expect_match(output, "Zipping", all = FALSE)
 })

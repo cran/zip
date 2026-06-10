@@ -29,6 +29,15 @@ Development version:
 pak::pak("r-lib/zip")
 ```
 
+## Optional dependencies
+
+- For progress bars (see below), the [cli](https://cli.r-lib.org)
+  package is needed.
+- The [curl](https://jeroen.r-universe.dev/curl) package is needed for
+  using `unzip()` on URLs.
+- Background processes, i.e. `zip_process()` and `unzip_process()`, need
+  the [processx](https://processx.r-lib.org) package.
+
 ## Usage
 
 ``` r
@@ -92,12 +101,89 @@ dir(exdir)
 #> [1] "R"   "src"
 ```
 
+`unzip()` and `zip_list()` also work on HTTP(S) URLs, without
+downloading the whole file. This needs the curl package to be installed:
+
+``` r
+zip_list("https://raw.githubusercontent.com/r-lib/zip/main/inst/example.zip")
+#> # A data frame: 4 × 8
+#>   filename     compressed_size uncompressed_size timestamp           permissions
+#>   <chr>                  <dbl>             <dbl> <dttm>              <octmode>  
+#> 1 example/                   0                 0 2019-02-23 21:48:06 755        
+#> 2 example/dir/               0                 0 2019-02-23 21:49:36 755        
+#> 3 example/dir…              11                 6 2019-02-23 21:48:24 644        
+#> 4 example/fil…              11                 6 2019-02-23 21:48:28 644        
+#> # ℹ 3 more variables: crc32 <hexmode>, offset <dbl>, type <chr>
+unzip(
+  "https://raw.githubusercontent.com/r-lib/zip/main/inst/example.zip",
+  "example/file1",
+  exdir = exdir
+)
+```
+
+### Password-protected archives
+
+Pass a `password` argument to encrypt entries with WinZip AES-256 (the
+default), which is supported by 7-Zip, WinZip, and macOS Archive
+Utility:
+
+``` r
+zip("secret.zip", "R", password = "hunter2")
+zip_list("secret.zip")
+#> # A data frame: 9 × 9
+#>   filename     compressed_size uncompressed_size timestamp           permissions
+#>   <chr>                  <dbl>             <dbl> <dttm>              <octmode>  
+#> 1 R/                         0                 0 2026-06-09 10:32:24 755        
+#> 2 R/assertion…             178               388 2026-06-08 09:00:44 644        
+#> 3 R/compat-vc…            3415             14344 2026-06-08 09:00:44 644        
+#> 4 R/http.R                4893             16515 2026-06-08 12:10:24 644        
+#> 5 R/inflate.R              769              2390 2026-06-08 12:10:24 644        
+#> 6 R/process.R             2140              7474 2026-06-09 10:42:48 644        
+#> 7 R/utils.R               2249              7483 2026-06-09 10:27:50 644        
+#> 8 R/zip-packa…             127               122 2026-06-08 09:00:44 644        
+#> 9 R/zip.R                 5218             16564 2026-06-09 10:32:24 644        
+#> # ℹ 4 more variables: crc32 <hexmode>, offset <dbl>, type <chr>,
+#> #   encryption <chr>
+unzip("secret.zip", exdir = tempfile(), password = "hunter2")
+```
+
 ### Compressing and uncompressing in background processes
 
 You can use the `zip_process()` and `unzip_process()` functions to
 create background zip / unzip processes. These processes were
 implemented on top of the `processx::process` class, so they are
 pollable.
+
+### Progress bars
+
+`zip()` and `unzip()` (and co.) support progress bars if the `cli`
+package is installed. This is disabled by default (for now), but can be
+enabled by setting the `zip_progress` option or the `ZIP_PROGRESS`
+environment variable to `TRUE`.
+
+### Configuration
+
+#### Options
+
+- `zip_password`: The default password for ZIP encryption and
+  decryption. Can be set to a string, a raw vector, or a function
+  returning one.
+- `zip_progress`: If set to `TRUE`, progress bars are enabled. Takes
+  precedence over the `ZIP_PROGRESS` environment variable.
+- `zip_threads`: The number of threads to use for threaded operations.
+  Takes precedence over the `ZIP_THREADS` environment variable.
+
+#### Environment variables
+
+- `R_ZIP_PROCESS_FALLBACK`: If set to `TRUE`, `unzip_process()`
+  functions will fall back to using an R subprocess, without trying to
+  use the cmdunzip executable embedded into the package. This is useful
+  when `cmdunzip.exe` is blocked by system policies on Windows.
+- `ZIP_PROGRESS`: If set to `TRUE`, progress bars are enabled. The
+  `zip_progress` option takes precedence over this environment variable.
+- `ZIP_THREADS`: The number of threads to use for threaded operations.
+  The `zip_threads` option takes precedence over this environment
+  variable.
 
 ## License
 

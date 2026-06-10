@@ -14,7 +14,10 @@ zip(
   compression_level = 9,
   include_directories = TRUE,
   root = ".",
-  mode = c("mirror", "cherry-pick")
+  mode = c("mirror", "cherry-pick"),
+  keys = NULL,
+  password = NULL,
+  encryption = c("aes256", "aes128", "zipcrypto")
 )
 
 zipr(
@@ -24,7 +27,10 @@ zipr(
   compression_level = 9,
   include_directories = TRUE,
   root = ".",
-  mode = c("cherry-pick", "mirror")
+  mode = c("cherry-pick", "mirror"),
+  keys = NULL,
+  password = NULL,
+  encryption = c("aes256", "aes128", "zipcrypto")
 )
 
 zip_append(
@@ -34,7 +40,10 @@ zip_append(
   compression_level = 9,
   include_directories = TRUE,
   root = ".",
-  mode = c("mirror", "cherry-pick")
+  mode = c("mirror", "cherry-pick"),
+  keys = NULL,
+  password = NULL,
+  encryption = c("aes256", "aes128", "zipcrypto")
 )
 
 zipr_append(
@@ -44,7 +53,10 @@ zipr_append(
   compression_level = 9,
   include_directories = TRUE,
   root = ".",
-  mode = c("cherry-pick", "mirror")
+  mode = c("cherry-pick", "mirror"),
+  keys = NULL,
+  password = NULL,
+  encryption = c("aes256", "aes128", "zipcrypto")
 )
 }
 \arguments{
@@ -52,8 +64,8 @@ zipr_append(
 overwrites it, but \code{zip_append} appends to it. If it is a directory
 an error is thrown.}
 
-\item{files}{List of file to add to the archive. See details below
-about absolute and relative path names.}
+\item{files}{Character vector of paths to files to add to the archive.
+See details below about absolute and relative path names.}
 
 \item{recurse}{Whether to add the contents of directories recursively.}
 
@@ -70,6 +82,30 @@ archive.}
 \item{mode}{Selects how files and directories are stored in
 the archive. It can be \code{"mirror"} or \code{"cherry-pick"}.
 See "Relative Paths" below for details.}
+
+\item{keys}{An optional character vector of the same length as \code{files},
+specifying the paths of the corresponding entries inside the zip
+archive. For a file, the key is the exact archive path. For a
+directory, the key becomes the directory prefix under which all
+contents are stored. If \code{NULL} (default), paths are determined by
+\code{mode}. \code{"."} may not appear in \code{files} when \code{keys} is specified.}
+
+\item{password}{Password for encrypting the archive entries. It can be a
+string, a raw vector of bytes, or a zero-argument function that returns
+one of these. If \code{NULL} (the default), the \code{zip_password} option is
+consulted; if that is also \code{NULL}, entries are stored unencrypted.
+The password is interpreted as UTF-8 bytes regardless of the current
+locale, which matches the WinZip/7-Zip convention and ensures
+interoperability across platforms.}
+
+\item{encryption}{Encryption scheme to use when \code{password} is not \code{NULL}.
+\code{"aes256"} (the default) and \code{"aes128"} use WinZip AES encryption
+(AES-256 or AES-128 in CTR mode, key derived via PBKDF2-HMAC-SHA1,
+with an HMAC-SHA1 authentication tag). This scheme is supported by
+7-Zip, WinZip, and macOS Archive Utility. \code{"zipcrypto"} uses the
+legacy PKWARE ZipCrypto stream cipher, which is \strong{cryptographically
+weak} and should only be used for compatibility with tools that do
+not support AES encryption.}
 }
 \value{
 The name of the created zip file, invisibly.
@@ -131,7 +167,7 @@ only relative paths are allowed in zip files.
 In cherry picking mode, the selected files and directories
 will be at the root of the archive. This mode is handy if you
 want to select a subset of files and directories, possibly from
-different paths and put all of the in the archive, at the top
+different paths and put all of them in the archive, at the top
 level.
 
 Here is an example with the same directory structure as above:
@@ -172,8 +208,8 @@ omitted, even on Unix.
 
 \subsection{\code{zipr()} and \code{zipr_append()}}{
 
-These function exist for historical reasons. They are identical
-to \code{zip()} and \code{zipr_append()} with a different default for the
+These functions exist for historical reasons. They are identical
+to \code{zip()} and \code{zip_append()} with a different default for the
 \code{mode} argument.
 }
 }

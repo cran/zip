@@ -4,7 +4,7 @@
 \alias{inflate}
 \title{Uncompress a raw GZIP stream}
 \usage{
-inflate(buffer, pos = 1L, size = NULL)
+inflate(buffer, pos = 1L, size = NULL, raw = FALSE)
 }
 \arguments{
 \item{buffer}{Raw vector, containing the data to uncompress.}
@@ -13,6 +13,10 @@ inflate(buffer, pos = 1L, size = NULL)
 
 \item{size}{Uncompressed size estimate, or \code{NULL}. If not given, or too
 small, the output buffer is resized multiple times.}
+
+\item{raw}{Whether \code{buffer} contains a raw DEFLATE stream, i.e. one
+without a zlib header and trailer. The default (\code{FALSE}) expects a
+zlib stream.}
 }
 \value{
 Named list with three entries:
@@ -30,6 +34,6 @@ data_gz <- deflate(charToRaw("Hello world!"))
 inflate(data_gz$output)
 }
 \seealso{
-\code{\link[base:memCompress]{base::memDecompress()}} does the same with \code{type = "gzip"},
+\code{\link[base:memDecompress]{base::memDecompress()}} does the same with \code{type = "gzip"},
 but it does not tell you the number of bytes read from the input.
 }

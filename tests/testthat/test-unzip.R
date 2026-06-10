@@ -216,3 +216,129 @@ test_that("symlinks on Unix", {
     "foo"
   )
 })
+
+test_that("CP437-encoded filename is decoded on extraction", {
+  cp437 <- test_path("fixtures/cp437.zip")
+  tmp <- test_temp_dir()
+
+  zip::unzip(cp437, exdir = tmp)
+  extracted <- list.files(tmp)
+  expect_equal(extracted, "catal\u00f1n.txt")
+  expect_equal(
+    readLines(file.path(tmp, "catal\u00f1n.txt")),
+    "CP437 filename test"
+  )
+})
+
+test_that("unzip works on files with STORED comp_size=0 quirk", {
+  zf <- test_path("fixtures/stored-zero-compsize.zip")
+  tmp <- test_temp_dir()
+  zip::unzip(zf, exdir = tmp)
+  expect_equal(
+    readLines(file.path(tmp, "subdir", "hello.txt")),
+    "Hello from a quirky zip file!"
+  )
+})
+
+test_that("unzip reads Info-ZIP forced ZIP64 (`zip -fz`)", {
+  # See tools/extra/make-zip64-infozip.sh. Exercises the zero-length STORED
+  # directory entries that the bundled miniz reader used to reject.
+  zf <- test_path("fixtures/zip64.zip")
+  tmp <- test_temp_dir()
+  zip::unzip(zf, exdir = tmp)
+  expect_true(dir.exists(file.path(tmp, "src", "dir")))
+  expect_equal(readLines(file.path(tmp, "src", "file1")), "file1")
+  expect_equal(readLines(file.path(tmp, "src", "dir", "file2")), "file2")
+})
+
+test_that("unzip() shows progress bar when zip.progress = TRUE", {
+  skip_if_not_installed("cli")
+  withr::local_options(zip.progress = FALSE)
+
+  z <- make_a_zip()
+  exdir <- test_temp_dir()
+
+  withr::local_options(zip.progress = TRUE, cli.progress_show_after = -1)
+  output <- capture.output(
+    asNamespace("cli")$cli_with_ticks(
+      zip::unzip(z$zip, exdir = exdir)
+    ),
+    type = "message"
+  )
+
+  expect_true(file.exists(file.path(exdir, basename(z$ex), "file1")))
+  expect_match(output, "Unzipping", all = FALSE)
+})
+
+test_that("unzip() with vector zipfile extracts all archives (threaded path)", {
+  z1 <- make_a_zip()
+  z2 <- make_a_zip()
+  exdir <- test_temp_dir()
+
+  zip::unzip(c(z1$zip, z2$zip), exdir = exdir)
+
+  expect_true(file.exists(file.path(exdir, basename(z1$ex), "file1")))
+  expect_true(file.exists(file.path(exdir, basename(z2$ex), "file1")))
+  expect_equal(readLines(file.path(exdir, basename(z1$ex), "file1")), "file1")
+  expect_equal(readLines(file.path(exdir, basename(z2$ex), "file1")), "file1")
+})
+
+test_that("unzip() with vector zipfile returns combined data frame", {
+  z1 <- make_a_zip()
+  z2 <- make_a_zip()
+  exdir <- test_temp_dir()
+
+  result <- zip::unzip(c(z1$zip, z2$zip), exdir = exdir)
+
+  expect_s3_class(result, "data.frame")
+  expect_true(nrow(result) > 0)
+  expect_true(any(grepl(basename(z1$ex), result$path)))
+  expect_true(any(grepl(basename(z2$ex), result$path)))
+})
+
+test_that("unzip() with vector zipfile falls back to sequential when files= is set", {
+  # Build two zips with a common internal path so files= can filter both
+  f1 <- test_temp_file()
+  cat("zip1", file = f1)
+  f1b <- test_temp_file()
+  cat("extra1", file = f1b)
+  z1 <- test_temp_file(".zip", create = FALSE)
+  zip(z1, c(f1, f1b), keys = c("data.txt", "extra1.txt"))
+
+  f2 <- test_temp_file()
+  cat("zip2", file = f2)
+  f2b <- test_temp_file()
+  cat("extra2", file = f2b)
+  z2 <- test_temp_file(".zip", create = FALSE)
+  zip(z2, c(f2, f2b), keys = c("data.txt", "extra2.txt"))
+
+  exdir <- test_temp_dir()
+  zip::unzip(c(z1, z2), files = "data.txt", exdir = exdir)
+
+  expect_true(file.exists(file.path(exdir, "data.txt")))
+  expect_false(file.exists(file.path(exdir, "extra1.txt")))
+  expect_false(file.exists(file.path(exdir, "extra2.txt")))
+})
+
+test_that("unzip() with vector zipfile falls back to sequential when junkpaths = TRUE", {
+  z1 <- make_a_zip()
+  z2 <- make_a_zip()
+  exdir <- test_temp_dir()
+
+  zip::unzip(c(z1$zip, z2$zip), junkpaths = TRUE, exdir = exdir)
+
+  expect_true(file.exists(file.path(exdir, "file1")))
+  expect_true(file.exists(file.path(exdir, "file2")))
+  expect_false(file.exists(file.path(exdir, basename(z1$ex))))
+})
+
+test_that("unzip() with vector zipfile falls back to sequential when encoding is set", {
+  z1 <- make_a_zip()
+  z2 <- make_a_zip()
+  exdir <- test_temp_dir()
+
+  zip::unzip(c(z1$zip, z2$zip), encoding = "UTF-8", exdir = exdir)
+
+  expect_true(file.exists(file.path(exdir, basename(z1$ex), "file1")))
+  expect_true(file.exists(file.path(exdir, basename(z2$ex), "file1")))
+})

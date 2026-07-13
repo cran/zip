@@ -1,3 +1,20 @@
+# zip 3.0.1
+
+* The progress bar option is now named `zip_progress`, to match the other
+  options. The old `zip.progress` name still works as a fallback (#150).
+
+* Boolean environment variables (`R_ZIP_PROCESS_FALLBACK` and
+  `ZIP_PROGRESS` currently) are now matched case-insensitively, so `TRUE`
+  and `FALSE` are accepted as documented (#154).
+
+* The number of threads used by `unzip()` now respects the `Ncpus` option,
+  if neither the `zip_threads` option nor the `ZIP_THREADS` environment
+  variable is set (#151).
+
+* Archives created by `zip()` can now always be extracted with the Windows
+  Explorer "Extract All" tool, including archives that contain many small
+  files (#153).
+
 # zip 3.0.0
 
 * `zip()`, `zipr()`, `zip_append()`, `zipr_append()`, `zip_process()`, and

@@ -306,7 +306,7 @@ true_values <- c("true", "on", "yes", "1", "yeah", "yep", "y")
 false_values <- c("false", "off", "no", "0", "nope", "nay", "n")
 
 is_true_env_var <- function(name) {
-  env <- Sys.getenv(name, unset = NA)
+  env <- tolower(Sys.getenv(name, unset = NA))
   if (is.na(env)) {
     NULL
   } else if (env %in% true_values) {
@@ -319,7 +319,8 @@ is_true_env_var <- function(name) {
 }
 
 is_progress_enabled <- function() {
-  enabled <- is_true_option("zip.progress") %||%
+  enabled <- is_true_option("zip_progress") %||%
+    is_true_option("zip.progress") %||%
     is_true_env_var("ZIP_PROGRESS") %||%
     FALSE
   enabled && requireNamespace("cli", quietly = TRUE)
